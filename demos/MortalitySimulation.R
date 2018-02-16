@@ -15,25 +15,29 @@ load("~/Documents/DemographicSimulation/data/USProbDeath.Rda")
 ages <- c(7/365/2, mean(c(28/365, 7/365)), mean(c(1 ,28/365)), 3, 
           seq(7.5, 107.5, 5))
 
+DFAge <- data.frame(age=ages, age_group_id=c(2:20, 30:33, 44, 45))
+
 DFAdultDeath <- "~/Downloads/ProbabilityOfDeath_estimates.csv" %>%
     read.csv(stringsAsFactors=FALSE) %>%
-    filter(location_id == 102 & year == 2016 & sex == "Both") %>%
+    filter(year == 2016 & sex == "Both") %>%
     filter(age_group_id %in% 6:20 | age_group_id %in% c(30:33, 44, 45)) %>%
-    unique %>% select(age_group, age_group_id, year, sex, mean)
+    unique %>% select(location, age_group, age_group_id, year, sex, mean)
 
-USProbDeath <- "~/Downloads/5q0Results_estimates.csv" %>%
+ProbDeath <- "~/Downloads/5q0Results_estimates.csv" %>%
     read.csv(stringsAsFactors=FALSE) %>%
-    filter(year==2016 & location_id == 102 & age_group_id %in% 2:5) %>%
-    unique %>% select(age_group, age_group_id, year, sex, mean) %>%
-    bind_rows(DFAdultDeath) %>% mutate(age=ages) %>%
+    filter(year==2016 & age_group_id %in% 2:5) %>%
+    unique %>% 
+    select(location, age_group, age_group_id, year, sex, mean) %>%
+    bind_rows(DFAdultDeath) %>% left_join(DFAge) %>%
     mutate(mean=ifelse(age_group_id == 2, mean * 365/7, mean)) %>%
     mutate(mean=ifelse(age_group_id == 3, mean * 365/21, mean)) %>%
     mutate(mean=ifelse(age_group_id == 4, mean * 365/337, mean)) %>%
-    rename(px=mean) %>% mutate(location="United States")
+    rename(px=mean)
 
-save(USProbDeath, file="~/Documents/DemographicSimulation/data/USProbDeath.Rda")
+save(ProbDeath, file="~/Documents/DemographicSimulation/data/ProbDeath.Rda")
 
-ggplot(DFDeath, aes(x=age, y=px)) + geom_point() + 
+ggplot(ProbDeath, aes(x=age, y=px, color=location, group=location)) + 
+    geom_line() + 
     coord_trans(y="log")
 
 
