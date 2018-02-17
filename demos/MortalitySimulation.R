@@ -10,35 +10,48 @@ library(dplyr)
 library(parallel)
 library(ggplot2)
 
-load("~/Documents/DemographicSimulation/data/USProbDeath.Rda")
+load("../data/ProbDeath.Rda")
 
 ages <- c(7/365/2, mean(c(28/365, 7/365)), mean(c(1 ,28/365)), 3, 
           seq(7.5, 107.5, 5))
-
-DFAge <- data.frame(age=ages, age_group_id=c(2:20, 30:33, 44, 45))
-
-DFAdultDeath <- "~/Downloads/ProbabilityOfDeath_estimates.csv" %>%
-    read.csv(stringsAsFactors=FALSE) %>%
-    filter(year == 2016 & sex == "Both") %>%
-    filter(age_group_id %in% 6:20 | age_group_id %in% c(30:33, 44, 45)) %>%
-    unique %>% select(location, age_group, age_group_id, year, sex, mean)
-
-ProbDeath <- "~/Downloads/5q0Results_estimates.csv" %>%
-    read.csv(stringsAsFactors=FALSE) %>%
-    filter(year==2016 & age_group_id %in% 2:5) %>%
-    unique %>% 
-    select(location, age_group, age_group_id, year, sex, mean) %>%
-    bind_rows(DFAdultDeath) %>% left_join(DFAge) %>%
-    mutate(mean=ifelse(age_group_id == 2, mean * 365/7, mean)) %>%
-    mutate(mean=ifelse(age_group_id == 3, mean * 365/21, mean)) %>%
-    mutate(mean=ifelse(age_group_id == 4, mean * 365/337, mean)) %>%
-    rename(px=mean)
-
-save(ProbDeath, file="~/Documents/DemographicSimulation/data/ProbDeath.Rda")
+yearsPassed <- c(7/365, 21/365, (365-28)/365, 4, rep(5, 21))
 
 ggplot(ProbDeath, aes(x=age, y=px, color=location, group=location)) + 
     geom_line() + 
     coord_trans(y="log")
+
+USDeath <- filter(ProbDeath, location=="United States")
+
+siler_func <- function(x, params){
+    a <- params[1]
+    b <- params[2]
+    c <- params[3]
+    d <- params[4]
+    f <- params[5]
+    a * exp(-b * x) + c + d * exp(f * x)
+}
+
+lik_func <- function(params, ages=USDeath$age, y=USDeath$px){
+    modelp <- exp(params)
+    silerfit <- siler_func(ages, modelp)
+    return(sqrt(mean((log(y)-log(silerfit))^2)))
+}
+
+sparams <- log(c(11.3915130, 1.944036, .000000000003, 3.835808e-04, 7.967152e-02))
+
+optSiler <- optim(sparams, lik_func)
+
+opt_siler_func <- function(x){
+    siler_func(x, exp(optSiler$par))
+}
+
+
+ggplot(data.frame(x=c(.001, 100)), aes(x=x)) + 
+    stat_function(fun=function(y) opt_siler_func(y)) +
+    coord_trans(y="log") + 
+    geom_point(data=USDeath, mapping=aes(x=age, y=px)) +
+    xlim(c(0.001, 100)) +
+    labs(x="Age", y="px", title="US Probability of Death by Age")
 
 
 mort_ledger <- function(start_pop, mort_func, time=0){
@@ -124,13 +137,50 @@ bigsteps <- sapply(1:sims, function(x) length(progress_pop(mledger)$pop))
 data.frame(pop=c(bigsteps, lilsteps), model=rep(c("big","small"), each=sims)) %>%
     ggplot(aes(x=pop, group=model, fill=model)) + geom_density(alpha=.3)
 
-siler_func <- function(x, a=.01, b=.01, c=.001, d=.002, f=.040){
-    a * exp(-b * x) + c + d * exp(f * x)
+
+silerLedger <- mort_ledger(rep(0, 10000), opt_siler_func)
+
+silerLedgerList <- list(mort_ledger(rep(0, 10000), opt_siler_func))
+steps <- c(7/356, 21/356, (356-21-7)/356, 4, rep(5, 14))
+
+for(i in 1:length(steps)){
+    print(i)
+    silerLedgerList[[i + 1]] <- progress_pop(silerLedgerList[[i]], steps[i])
 }
 
-ggplot(data.frame(x=c(.001, 100)), aes(x=x)) + 
-    stat_function(fun=siler_func) +
-    coord_trans(y="log")
+estPx <- silerLedgerList[[19]]$ledger %>% 
+    mutate(age=(age_start + age_end)/2) %>%
+    group_by(age) %>% summarise(deaths=n()) %>%
+    mutate(pop=10000) %>%
+    mutate(pop=pop- cumsum(deaths) + deaths) %>%
+    mutate(rawp=deaths/pop) %>%
+    mutate(time=yearsPassed[1:length(steps)]) %>%
+    mutate(px=1-((1-rawp)^((time)^-1)))
 
-ggplot(data.frame(x=c(-3,3)), aes(x=x)) + 
-    stat_function(fun=mledger$mortality$mortFunc)
+
+ggplot(data.frame(x=c(.001, 100)), aes(x=x)) + 
+    stat_function(fun=function(y) opt_siler_func(y)) +
+    coord_trans(y="log") + 
+    geom_point(data=USDeath, mapping=aes(x=age, y=px)) +
+    xlim(c(0.001, 100)) +
+    labs(x="Age", y="px", title="US Probability of Death by Age") +
+    geom_point(data=estPx, mapping=aes(x=age, y=px), color=2)
+
+ggplot(data.frame(x=c(.001, 100)), aes(x=x)) + 
+    stat_function(fun=function(y) opt_siler_func(y)) +
+    geom_point(data=USDeath, mapping=aes(x=age, y=px)) +
+    xlim(c(0.001, 100)) +
+    labs(x="Age", y="px", title="US Probability of Death by Age") +
+    geom_point(data=estPx, mapping=aes(x=age, y=px), color=2)
+
+# logSurvSiler <- function(y){
+#     log(1 - opt_siler_func(y))
+# }
+# 
+# my.uniroot <- function(x) uniroot(logSurvSiler, c(0, 100), tol = 0.0001)$root
+# x <- runif(100)
+# system.time({
+#     r <- vapply(x, my.uniroot, numeric(1))
+# })
+
+#msteps <-
