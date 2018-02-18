@@ -10,17 +10,44 @@ library(dplyr)
 library(parallel)
 library(ggplot2)
 
-load("../data/ProbDeath.Rda")
+load("../data/DFDeath.Rda")
 
-ages <- c(7/365/2, mean(c(28/365, 7/365)), mean(c(1 ,28/365)), 3, 
-          seq(7.5, 107.5, 5))
-yearsPassed <- c(7/365, 21/365, (365-28)/365, 4, rep(5, 21))
+DFDeath <- DFDeath %>% filter(year == 2016 & sex == "Both")
 
-ggplot(ProbDeath, aes(x=age, y=px, color=location, group=location)) + 
-    geom_line() + 
-    coord_trans(y="log")
+ggplot(DFDeath, aes(x=age_mean, y=Sx, color=location, group=location)) + 
+    geom_point() +
+    labs(x="Age", y="S(x)", title="Observed Period Survival Rate: 2016")
 
-USDeath <- filter(ProbDeath, location=="United States")
+ggplot(DFDeath, aes(x=age_mean, y=Sx, color=location, group=location)) + 
+    geom_point() +
+    coord_trans(y="logit") +
+    labs(x="Age", y="S(x)", title="Observed Period Survival Rate: 2016")
+
+ggplot(DFDeath, aes(x=age_mean, y=Fx, color=location, group=location)) + 
+    geom_point() + 
+    labs(x="Age", y="F(x)", title="Observed Period Failure Rate: 2016")
+
+ggplot(DFDeath, aes(x=age_mean, y=Fx, color=location, group=location)) + 
+    geom_point() + 
+    coord_trans(y="log") +
+    labs(x="Age", y="F(x)", title="Observed Period Failure Rate: 2016")
+
+ggplot(DFDeath, aes(x=age_mean, y=hx, color=location, group=location)) + 
+    geom_point() + 
+    labs(x="Age", y="h(x)", title="Instantaneous Period Hazard: 2016")
+
+ggplot(DFDeath, aes(x=age_mean, y=hx, color=location, group=location)) + 
+    geom_point() + 
+    coord_trans(y="log") + 
+    labs(x="Age", y="h(x)", title="Instantaneous Period Hazard: 2016")
+
+
+ggplot(DFDeath, aes(x=age_mean, y=Fx, color=location, group=location)) + 
+    geom_point() + 
+    coord_trans(y="logit") +
+    labs(x="Age", y="F(x)", title="Observed Period Failure Rate: 2016")
+
+USDeath <- filter(DFDeath, location=="United States")
 
 siler_func <- function(x, params){
     a <- params[1]
@@ -31,7 +58,7 @@ siler_func <- function(x, params){
     a * exp(-b * x) + c + d * exp(f * x)
 }
 
-lik_func <- function(params, ages=USDeath$age, y=USDeath$px){
+lik_func <- function(params, ages=USDeath$age_mean, y=USDeath$hx){
     modelp <- exp(params)
     silerfit <- siler_func(ages, modelp)
     return(sqrt(mean((log(y)-log(silerfit))^2)))
@@ -49,7 +76,7 @@ opt_siler_func <- function(x){
 ggplot(data.frame(x=c(.001, 100)), aes(x=x)) + 
     stat_function(fun=function(y) opt_siler_func(y)) +
     coord_trans(y="log") + 
-    geom_point(data=USDeath, mapping=aes(x=age, y=px)) +
+    geom_point(data=USDeath, mapping=aes(x=age_mean, y=hx)) +
     xlim(c(0.001, 100)) +
     labs(x="Age", y="px", title="US Probability of Death by Age")
 
