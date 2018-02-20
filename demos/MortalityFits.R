@@ -6,6 +6,7 @@ library(parallel)
 library(ggplot2)
 library(splines)
 library(GoFKernel)
+library(sn)
 
 load("../data/DFDeath.Rda")
 USDeath <- DFDeath %>%
@@ -78,7 +79,8 @@ data.frame(x=USDeath$age_end) %>%#seq(0.01, 105, .01)) %>%
 data.frame(x=seq(0.025, 115, .025)) %>% 
     mutate(y=linInterp(x, deriv=1)) %>%
     ggplot(aes(x, y)) + geom_line() + 
-    labs(title="First Derivative of Interpolated CDF(Interpolated PDF)")
+    labs(title="First Derivative of Interpolated CDF(Interpolated PDF)") +
+    xlim(c(0,3))
 
 data.frame(x=USDeath$age_end) %>%#seq(0.01, 105, .01)) %>% 
     mutate(y=hxfunc(x)) %>%
@@ -103,7 +105,7 @@ simUSAMort <- function(n, mc.cores=1, max_age=140){
 
 set.seed(123)
 m <- 10000
-simDeaths <- lapply(1:100, function(y) simUSAMort(m, 6))
+system.time(simDeaths <- lapply(1:100, function(y) simUSAMort(m, 6)))
 
 aggData <- function(sims, sim_num, m_=m){
     USDeath %>% select(age_group_id, age_time, age_end) %>%
@@ -141,3 +143,107 @@ simDF %>% filter(age_end < 115 & Sx < 1 & Sx > 0) %>%
     coord_trans(y="logit") +
     labs(title="Simulated Survival Curves")
 
+data.frame(death=unlist(simDeaths[1:9]), simulation=rep(1:9, each=m)) %>%
+    ggplot(aes(x=death)) + geom_density() + 
+    facet_wrap(~simulation)
+
+
+transparams <- function(params){
+    #c(exp(params[1:2]), expit(params[3]), exp(params[4:5]))
+    exp(params)
+}
+
+doublikfunc <- function(params, datur=simDeaths[[1]]){
+    shape1 <- transparams(params)[1]
+    scale1 <- transparams(params)[2]
+    #p <- transparams(params)[3]
+    alpha2 <- transparams(params)[3]
+    beta2 <- transparams(params)[4]
+    dlo <- datur[datur < 5]
+    dhi <- datur[datur >= 5]
+    nll <- sum(dgamma(dlo, shape=shape1, scale=scale1, log=TRUE) * -1)
+    nll <- sum(nll + dbeta(dhi/110, alpha2, beta2, log=TRUE) * -1)
+    nll
+}
+
+Opt <- optim(c(log(c(1,1)), log(c(3, 1.8))), doublikfunc)
+
+simDist <- function(n, params, p=.007){
+    ydeath <- as.logical(rbinom(n, 1, p))
+    shape1 <- transparams(params)[1]
+    scale1 <- transparams(params)[2]
+    alpha2 <- transparams(params)[3]
+    beta2 <- transparams(params)[4]
+    c(rgamma(n, shape=shape1, scale=scale1)[ydeath], 
+      rbeta(n, alpha2, beta2)[!ydeath] * 110)
+}
+
+data.frame(deaths=c(simDist(m, Opt$par), simDeaths[[1]])) %>%
+    mutate(type=rep(c("Parametric", "Non-Parametric"), each=m)) %>%
+    ggplot(aes(x=deaths, group=type, fill=type)) + 
+    geom_density(alpha=.2)
+
+data.frame(deaths=c(simDist(m, Opt$par), simDeaths[[1]])) %>%
+    mutate(type=rep(c("Parametric", "Non-Parametric"), each=m)) %>%
+    filter(deaths<=5) %>%
+    ggplot(aes(x=deaths, group=type, fill=type)) + 
+    geom_density(alpha=.2)
+
+
+doublikfunc2 <- function(params, datur=simDeaths[[1]]){
+    shape1 <- transparams(params)[1]
+    scale1 <- transparams(params)[2]
+    omega2 <- transparams(params)[3]
+    alpha2 <- -transparams(params)[4]
+    xi2 <- params[5]
+    dlo <- datur[datur < 5]
+    dhi <- datur[datur >= 5]
+    nll <- sum(dgamma(dlo, shape=shape1, scale=scale1, log=TRUE) * -1)
+    nll <- sum(nll + dsn(dhi, xi2, omega2, alpha2, log=TRUE) * -1)
+    nll
+}
+
+Opt2 <- optim(c(log(c(1,1)), log(c(3, 1.8)), 80), doublikfunc2)
+
+simDist2 <- function(n, params, p=.007){
+    ydeath <- as.logical(rbinom(n, 1, p))
+    shape1 <- transparams(params)[1]
+    scale1 <- transparams(params)[2]
+    omega2 <- transparams(params)[3]
+    alpha2 <- -transparams(params)[4]
+    xi2 <- params[5]
+    sim_ <- c(rgamma(n, shape=shape1, scale=scale1)[ydeath], 
+              rsn(n, xi2, omega2, alpha2)[!ydeath])
+    sim_[sim_ <=0] <- sample(sim_[sim_ >0], size=sum(sim_<=0), replace=T)
+    sim_
+}
+
+data.frame(deaths=c(simDist2(m, Opt2$par), simDeaths[[1]])) %>%
+    mutate(type=rep(c("Parametric", "Non-Parametric"), each=m)) %>%
+    ggplot(aes(x=deaths, group=type, fill=type)) + 
+    geom_density(alpha=.2)
+
+data.frame(deaths=c(simDist2(m, Opt2$par), simDeaths[[1]])) %>%
+    mutate(type=rep(c("Parametric", "Non-Parametric"), each=m)) %>%
+    filter(deaths<=5) %>%
+    ggplot(aes(x=deaths, group=type, fill=type)) + 
+    geom_density(alpha=.2)
+
+simParamDeaths <- lapply(1:100, function(x) simDist2(m, Opt2$par))
+
+simParamDF <- bind_rows(lapply(1:100, function(i) 
+    aggData(simParamDeaths[[i]], i)))
+
+simParamDF %>% filter(age_end < 115 & hx != 0) %>%
+    ggplot(aes(x=age_end, y=hx, color=simulation, group=simulation)) + 
+    geom_line(alpha=.3) + 
+    geom_line(aes(x=age_end, y=hx, group=1), data=USDeath, color="red") + 
+    coord_trans(y="log") + 
+    labs("Simulated Instantaneous Hazard")
+
+simParamDF %>% filter(age_end < 115 & Sx < 1 & Sx > 0) %>%
+    ggplot(aes(x=age_end, y=Sx, color=simulation, group=simulation)) + 
+    geom_line(alpha=.3) + 
+    geom_line(aes(x=age_end, y=Sx, group=1), data=USDeath, color="red") +
+    coord_trans(y="logit") +
+    labs(title="Simulated Survival Curves")
