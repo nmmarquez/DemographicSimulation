@@ -39,27 +39,27 @@ unique(DFDeath$location)
 # run plotting and simulation code
 require(dplyr)
 require(ggplot2)
-# Generate the demographic functions for Mexico 2016 Females
+# Generate the demographic functions for Mexico 1980
 MX2016F <- GenPopFuncs(location_="Mexico", year_=1980, sex_="Both")
 
-summary(MX2016F$CDF(seq(.010, 100.005, .005)) - MX2016F$CDF(seq(.005, 100, .005)))
-summary(MX2016F$CDF(seq(.010, 100.005, .005), deriv=1))
 
 # plot some of the functions
 data.frame(Age=seq(.01, 120, .01)) \%>\%
     mutate(CDF=MX2016F$CDF(Age)) \%>\%
     ggplot(aes(x=Age, y=CDF)) + 
     geom_line() + 
-    coord_trans(y="log")
+    coord_trans(y="log") +
+    labs(title="Failure Function of Mexico Mortality: 1980", x="Age", y="Failure")
 
 data.frame(Age=seq(.1, 100, .005)) \%>\%
     mutate(Hazard=MX2016F$Hxfunc(Age)) \%>\%
     ggplot(aes(x=Age, y=Hazard)) + 
     geom_line() + 
-    coord_trans(y="log")
+    coord_trans(y="log") +
+    labs(title="Hazard Function of Mexico Mortality: 1980", x="Age", y="Hazard")
 
 m <- 10000
-system.time(simDeaths <- lapply(1:100, function(y) MX2016F$simPop(m, 1)))
+system.time(simDeaths <- lapply(1:10, function(y) MX2016F$simPop(m, 1)))
 
 MXDeath <- DFDeath \%>\%
     filter(location=="Mexico" & year==1980 & sex=="Both")
@@ -77,14 +77,14 @@ aggData <- function(sims, sim_num, m_=m){
         mutate(simulation=sim_num)
 }
 
-simDF <- bind_rows(lapply(1:100, function(i) aggData(simDeaths[[i]], i))) 
+simDF <- bind_rows(lapply(1:10, function(i) aggData(simDeaths[[i]], i))) 
 
 simDF \%>\% filter(age_end < 115 & hx != 0) \%>\%
     ggplot(aes(x=age_end, y=hx, color=simulation, group=simulation)) + 
     geom_line(alpha=.3) + 
     geom_line(aes(x=age_end, y=hx, group=1), data=MXDeath, color="red") + 
     coord_trans(y="log") + 
-    labs("Simulated Instantaneous Hazard")
+    labs(title="Simulated Instantaneous Hazard", x="Age", y="Hazard")
 
 
 }
