@@ -8,7 +8,8 @@ Description: Demographic Simulation of Moortality Using GBD 2016 Results.
 Depends: R (>= 3.3.0)
 Imports:
     splines,
-    parallel
+    parallel,
+    sn
 Suggests:
     ggplot2,
     dplyr

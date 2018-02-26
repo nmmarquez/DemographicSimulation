@@ -1,6 +1,7 @@
 # Mortality fits
 rm(list=ls())
 library(rgr)
+library(fitdistrplus)
 library(dplyr)
 library(parallel)
 library(ggplot2)

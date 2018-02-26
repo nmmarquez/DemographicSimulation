@@ -71,7 +71,7 @@
 #'     geom_line(alpha=.3) + 
 #'     geom_line(aes(x=age_end, y=hx, group=1), data=MXDeath, color="red") + 
 #'     coord_trans(y="log") + 
-#'     labs(title="Simulated Instantaneous Hazard", x="Age", y="Hazard")
+#'     labs(title="Non-Parametric Simulated Instantaneous Hazard", x="Age", y="Hazard")
 #' 
 #' 
 #' @export
