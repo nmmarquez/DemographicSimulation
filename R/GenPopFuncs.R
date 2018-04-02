@@ -4,6 +4,8 @@
 #' Inverse Failure(invCDF), derivative of failure, and simulation functions for
 #' a specified country, year, sex.
 #' 
+#' @param ages numeric, sorted age at end of period for survival function
+#' @param Fx numeric, increasing vector of probability of death at age
 #' @param location_ character, country name
 #' @param year_  1970 <= int <= 2016, year of mortality function to generate 
 #' @param sex_ character, either 'Female', 'Male', or 'Both'
@@ -78,10 +80,16 @@
 #' 
 
 GenPopFuncs <- 
-    function(location_="United States", year_=2016, sex_="Both", max_age=140){
+    function(ages=NULL, Fx=NULL, location_="United States",
+             year_=2016, sex_="Both", max_age=140){
     library(splines)
     library(parallel)
-    DFsub <- subset(DFDeath,location==location_ & year == year_ & sex == sex_)
+    if(is.null(ages)){
+        DFsub <- subset(DFDeath,location==location_ & year==year_ & sex==sex_)
+    }
+    else{
+        Dfsub <- data.frame(Fx=Fx, age_end=ages)
+    }
     CDF <- splinefun(
         c(-1, 0, DFsub$age_end, max_age, max_age+1), 
         c(0, 0, DFsub$Fx, 1, 1), 

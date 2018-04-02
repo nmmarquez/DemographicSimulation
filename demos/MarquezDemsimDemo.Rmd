@@ -1,0 +1,197 @@
+---
+title: "Simulating Mortality Data"
+author: Neal Marquez
+date: March 15, 2018
+output: ioslides_presentation
+---
+
+## Why Simulate Demographic Data?
+- Assess Methodological Approaches  
+- Forecast Populations Using Estimated Parameters  
+- Assess Past Population Thresholds
+
+## What are the Current Options?
+- Using the Demography Package 
+```{R demoDemography, message=FALSE, warning=FALSE, eval=FALSE}
+library(demography)
+library(addb) # devtools::install_github("robjhyndman/addb")
+
+# Construct data objects
+mort_ <- smooth.demogdata(set.upperage(
+extract.years(australia, 1950:2002), 100))
+fert_ <- smooth.demogdata(extract.years(aus.fertility, 1950:2002))
+mig_ <- netmigration(set.upperage(australia,100),
+aus.fertility, mfratio=1.0545)
+# Fit models
+fits <- list(coherentfdm(mort_), fdm(fert_), coherentfdm(mig_))
+# Produce forecasts
+fcast <- lapply(fits, forecast)
+# Simulate
+aus.sim <- pop.sim(fcast[[1]], fcast[[2]], fcast[[3]], australia)
+```
+
+## Simulating Inverse Survival Function  
+
+```{R plotFx, warning=FALSE, message=FALSE, echo=FALSE}
+library(dplyr)
+library(ggplot2)
+# devtools::install_github("nmmarquez/DemographicSimulation")
+library(DemographicSimulation)
+
+locs <- c("Japan", "United States", "Haiti", "Kenya")
+DFDeath %>% filter(sex=="Both" & year==2016 & location %in% locs) %>%
+    ggplot(aes(x=age_end, y=Fx, color=location, group=location)) +
+    geom_line() +
+    scale_color_discrete(name="Location") +
+    theme_classic() +
+    labs(x="Age", y="F(x)", title="Inverse Survival Functions: 2016")
+```
+
+## Non-Parametric Spline Simulation
+
+```
+1. Obtain age and F(x) information  
+2. Set knots at the age groups provided  
+3. Fit spline model with non-zero derivative constraint  
+4. Construct F(x), S(x), and F'(x)/S(x) functions  
+5. Simulate data solving for CDF using Brent methodology
+```
+
+## Non-Parametric Spline Simulation  
+
+```{R plotMexFx, warning=FALSE, message=FALSE, echo=FALSE}
+# Generate the demographic functions for Mexico 1980
+MX2016F <- GenPopFuncs(location_="Mexico", year_=1980, sex_="Both")
+
+# plot some of the functions
+data.frame(Age=seq(.01, 120, .01)) %>%
+    mutate(CDF=MX2016F$CDF(Age)) %>%
+    ggplot(aes(x=Age, y=CDF)) +
+    geom_line() +
+    theme_classic() +
+    labs(title="Inverse Survival Function of Mexico Mortality: 1980", x="Age", y="F(x)")
+```
+
+## Non-Parametric Spline Simulation  
+
+```{R plotMexHx, warning=FALSE, message=FALSE, echo=FALSE}
+data.frame(Age=seq(.1, 100, .005)) %>%
+    mutate(Hazard=MX2016F$Hxfunc(Age)) %>%
+    ggplot(aes(x=Age, y=Hazard)) +
+    geom_line() +
+    theme_classic() +
+    coord_trans(y="log") +
+    labs(title="Hazard Function of Mexico Mortality: 1980", x="Age", y="Hazard")
+```
+
+## Non-Parametric Spline Simulation  
+
+```{R plotMexSim, warning=FALSE, message=FALSE, echo=FALSE}
+m <- 10000
+n <- 100
+system.time(simDeaths <- lapply(1:n, function(y) MX2016F$simPop(m, 6)))
+data.frame(Age=simDeaths[[1]]) %>%
+    ggplot(aes(x=Age)) +
+    geom_density() +
+    theme_classic() +
+    labs(y="Density", title="Distribution of Simulated Deaths")
+```
+
+## Non-Parametric Spline Simulation  
+
+```{R plotMexSimHx, warning=FALSE, message=FALSE, echo=FALSE}
+MXDeath <- DFDeath %>%
+    filter(location=="Mexico" & year==1980 & sex=="Both")
+
+aggData <- function(sims, sim_num, m_=m){
+    MXDeath %>% select(age_group_id, age_time, age_end) %>%
+        mutate(ldeaths=sapply(age_end, function(a) sum(sims < a))) %>%
+        mutate(deaths=ldeaths-lag(ldeaths)) %>%
+        mutate(deaths=ifelse(is.na(deaths), ldeaths, deaths)) %>%
+        mutate(pop_size=m_-lag(ldeaths)) %>%
+        mutate(pop_size=ifelse(is.na(pop_size), m_, pop_size)) %>%
+        mutate(px=deaths/pop_size, qx=1-px) %>%
+        mutate(hx=1-(qx^(1/age_time))) %>%
+        mutate(Sx=cumprod(qx), Fx=1-Sx) %>%
+        mutate(simulation=sim_num)
+}
+
+simDF <- bind_rows(lapply(1:n, function(i) aggData(simDeaths[[i]], i)))
+
+simDF %>% filter(age_end < 110 & hx != 0) %>%
+    ggplot(aes(x=age_end, y=hx, color=simulation, group=simulation)) +
+    scale_color_continuous(name="Simulation") +
+    geom_line(alpha=.3) +
+    geom_line(aes(x=age_end, y=hx, group=1), 
+              data=filter(MXDeath, age_end < 110), color="red") +
+    coord_trans(y="log") +
+    theme_classic() +
+    labs(title="Non-Parametric Simulated Instantaneous Hazard", 
+         x="Age", y="Hazard")
+```
+
+## Parametric Model Simulation  
+
+$$
+p \frac{\beta^\alpha}{\Gamma (\alpha)}x^{\alpha - 1}e^{-\beta x} +
+(1-p) \frac{2}{\sqrt{\omega 2 \pi}} e^{-\frac{(x-\xi)^2}{2 \omega^2}}
+\int_{- \infty}^{\rho \frac{x - \xi}{\omega}} e^{-\frac{t^2}{2}} dt
+$$
+
+## Parametric Model Simulation  
+
+```{R paramSim, warning=FALSE, message=FALSE, echo=FALSE}
+MX2016sim <- paramFitFunc(location_="Mexico", year_=1980, sex_="Both")
+simDeaths <- lapply(1:n, function(y) MX2016sim(m))
+
+MXDeath <- DFDeath %>%
+    filter(location=="Mexico" & year==1980 & sex=="Both")
+
+aggData <- function(sims, sim_num, m_=m){
+    MXDeath %>% select(age_group_id, age_time, age_end) %>%
+        mutate(ldeaths=sapply(age_end, function(a) sum(sims < a))) %>%
+        mutate(deaths=ldeaths-lag(ldeaths)) %>%
+        mutate(deaths=ifelse(is.na(deaths), ldeaths, deaths)) %>%
+        mutate(pop_size=m_-lag(ldeaths)) %>%
+        mutate(pop_size=ifelse(is.na(pop_size), m_, pop_size)) %>%
+        mutate(px=deaths/pop_size, qx=1-px) %>%
+        mutate(hx=1-(qx^(1/age_time))) %>%
+        mutate(Sx=cumprod(qx), Fx=1-Sx) %>%
+        mutate(simulation=sim_num)
+}
+
+simDF <- bind_rows(lapply(1:n, function(i) aggData(simDeaths[[i]], i)))
+
+simDF %>% filter(age_end < 110 & hx != 0) %>%
+    ggplot(aes(x=age_end, y=hx, color=simulation, group=simulation)) +
+    geom_line(alpha=.3) +
+    geom_line(aes(x=age_end, y=hx, group=1),
+              data=filter(MXDeath, age_end < 110), color="red") +
+    coord_trans(y="log") +
+    labs(title="Parametric Simulated Instantaneous Hazard",
+         x="Age", y="Hazard")
+```
+
+## Geographic Simulation Example  
+- Urban Rural Split of Life Expectancy  
+- Focus on County Geographic Differences  
+- What are the County Drivers of Health 
+
+$$
+P(\text{Hi } e_0 | \text{Rural}) = .1 \\
+P(\text{Hi } e_0 | \text{Rural}) = .7 \\
+$$
+
+## Geographic Simulation Example  
+```{R countySim, warning=FALSE, message=FALSE, echo=FALSE}
+library(leaflet)
+MapList2 <- readRDS("~/Documents/Classes/DemographicMethods/Project/Maps.Rds")
+MapList2[[1]]
+```
+
+## Geographic Simulation Example  
+```{R countySim2, warning=FALSE, message=FALSE, echo=FALSE}
+MapList2[[3]]
+```
+
+----

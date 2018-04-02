@@ -9,24 +9,24 @@ DFAge <- data.frame(age_group_id=c(2:20, 30:33, 44:45)) %>%
     mutate(age_start=c(0, 7/356, 28/356, 1, seq(5, 105, 5)))
 
 # read and filter the adult data
-DFAdult <- "~/Downloads/ProbabilityOfDeath_estimates.csv" %>%
+DFAdult <- "~/Documents/DemographicSimulation/data/ProbabilityOfDeath_estimates.csv" %>%
     read.csv(stringsAsFactors=FALSE) %>%
-    #filter(sex=="Both" & year==2016) %>% 
+    filter(sex=="Both") %>% 
     filter(age_group_id %in% c(6:20, 30:33, 44:45)) %>%
-    unique %>% rename(px=mean) %>% 
-    select(location, year, age_group, age_group_id, sex, px)
+    unique %>% rename(qx=mean) %>% 
+    select(location, year, age_group, age_group_id, sex, qx)
 
 # load in the child data and ombine with adult and the age DFs
-DFDeath <-"~/Downloads/5q0Results_estimates.csv" %>%
+DFDeath <-"~/Documents/DemographicSimulation/data/5q0Results_estimates.csv" %>%
     read.csv(stringsAsFactors=FALSE) %>%
-    #filter(sex=="Both" & year==2016)  %>%
+    filter(sex=="Both")  %>%
     filter(age_group_id %in% 2:5) %>%
-    unique %>% rename(px=mean) %>% 
-    select(location, year, age_group, age_group_id, sex, px) %>%
+    unique %>% rename(qx=mean) %>% 
+    select(location, year, age_group, age_group_id, sex, qx) %>%
     bind_rows(DFAdult) %>% left_join(DFAge, by="age_group_id") %>%
     arrange(location, year, sex, age_group_id) %>%
-    mutate(qx=1-px, hx=1-((qx)^(1/age_time))) %>%
-    group_by(location, year, sex) %>% mutate(Sx=cumprod(qx), Fx=1-Sx) %>% 
+    mutate(px=1-qx, hx=1-((px)^(1/age_time))) %>%
+    group_by(location, year, sex) %>% mutate(Sx=cumprod(px), Fx=1-Sx) %>% 
     as.data.frame
 
-save(DFDeath, file="../data/DFDeath.Rda")
+save(DFDeath, file="~/Documents/DemographicSimulation/data/DFDeath.RData")

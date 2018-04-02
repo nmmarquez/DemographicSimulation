@@ -5,6 +5,8 @@
 #' where the probability of puuling from the gamma distribution is generated from the 
 #' observed data. 
 #' 
+#' @param ages numeric, sorted age at end of period for survival function
+#' @param Fx numeric, increasing vector of probability of death at age
 #' @param start_params vector of length five of starting values for parameters 
 #' @param location_ character, country name
 #' @param year_  1970 <= int <= 2016, year of mortality function to generate 
@@ -63,6 +65,8 @@
 #' 
 
 paramFitFunc <- function(
+    ages=NULL, 
+    Fx=NULL,
     start_params=c(0, 0, 1.1, .57, 80),
     location_="United States", 
     year_=2016, 
@@ -71,9 +75,14 @@ paramFitFunc <- function(
     returnParams=FALSE
 ){
     library(sn)
-    DFsub <- subset(DFDeath,location==location_ & year == year_ & sex == sex_)
-    childDF <- DFsub %>% filter(age_group_id <= 5)
-    adultDF <- DFsub %>% filter(age_group_id > 5)
+    if(is.null(ages)){
+        DFsub <- subset(DFDeath, location==location_ & year==year_ & sex==sex_)
+    }
+    else{
+        Dfsub <- data.frame(Fx=Fx, age_end=ages)
+    }
+    childDF <- subset(DFsub, age_end <= 5)
+    adultDF <- subset(DFsub, age_end > 5)
     childCDF <- childDF$Fx / childDF$Fx[nrow(childDF)]
     adultCDF <- c(adultDF$Fx - childDF$Fx[nrow(childDF)], 1)
     
@@ -93,7 +102,7 @@ paramFitFunc <- function(
     
     Opt2 <- optim(start_params, doublikfunc2)
     
-    p <- 1 - cumprod(childDF$qx)[nrow(childDF)]
+    p <- 1 - cumprod(childDF$px)[nrow(childDF)]
     shape1 <- exp(Opt2$par)[1]
     scale1 <- exp(Opt2$par)[2]
     omega2 <- exp(Opt2$par)[3]
@@ -107,10 +116,18 @@ paramFitFunc <- function(
     
     simDist2 <- function(n){
         ydeath <- as.logical(rbinom(n, 1, p))
-        sim_ <- c(rgamma(n, shape=shape1, scale=scale1)[ydeath], 
-                  rsn(n, xi2, omega2, alpha2)[!ydeath])
+        sim_ <- vector("numeric")
+        if(sum(ydeath) != 0){
+            sim_ <- c(sim_, rgamma(sum(ydeath), shape=shape1, scale=scale1))
+        }
+        if(sum(!ydeath) != 0){
+            sim_ <- c(sim_, rsn(sum(!ydeath), xi2, omega2, alpha2))
+        }
         sim_[sim_ <=0] <- sample(sim_[sim_ >0], size=sum(sim_<=0), replace=T)
-        sim_
+        if (length(sim_) > 1){
+           sim_ <- sample(sim_) 
+        }
+        return(sim_)
     }
     
     return(simDist2)
